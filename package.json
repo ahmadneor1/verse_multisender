@@ -1,0 +1,16 @@
+{
+  "name": "verse_multisender",
+  "version": "1.0.0",
+  "description": "",
+  "main": "send.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "web3": "^1.10.0",
+    "web3-utils": "^4.3.3"
+  }
+}
