@@ -1,6 +1,5 @@
 const Web3 = require('web3');
 const fs = require('fs');
-const { toBN, toWei } = require('web3-utils');
 
 // === Setting ===
 const RPC_URL = 'https://polygon-rpc.com'; // RPC Polygon Mainnet
@@ -9,7 +8,7 @@ const AMOUNT_TO_SEND = '12000'; // Jumlah token yang dikirim per wallet
 const DECIMALS = 18; // Biasanya 18 untuk ERC-20 standar
 
 // === Load Data dari File ===
-const privateKeys = fs.readFileSync('privateKeys.txt', 'utf8')
+const privateKeys = fs.readFileSync('sender.txt', 'utf8')
     .split('\n')
     .map(line => line.trim())
     .filter(line => line.length > 0);
