@@ -12,7 +12,8 @@ This script is useful for those of you who want to collect tokens from various w
    <pre lang="markdown">npm install</pre>
    or
    <pre lang="markdown">npm i</pre>
-4. Finally, you can run it:
+4. Fill file ```sender.txt``` and ```destination.txt```!
+5. Finally, you can run it:
    <pre lang="markdown">node send.js</pre>
 
 NOTED: Make sure that each account that will make the transfer has enough tokens for the gas fee!

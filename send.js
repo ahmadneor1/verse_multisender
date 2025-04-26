@@ -1,13 +1,13 @@
 const Web3 = require('web3');
 const fs = require('fs');
+const readline = require('readline');
 
 // === Setting ===
 const RPC_URL = 'https://polygon-rpc.com'; // RPC Polygon Mainnet
 const TOKEN_CONTRACT_ADDRESS = '0xc708d6f2153933daa50b2d0758955be0a93a8fec'; // Alamat contract token VERSE
-const AMOUNT_TO_SEND = '12000'; // Jumlah token yang dikirim per wallet
 const DECIMALS = 18; // Biasanya 18 untuk ERC-20 standar
+const DELAY_MS = 2000; // Delay antar pengiriman 2 detik
 
-// === Load Data dari File ===
 const privateKeys = fs.readFileSync('sender.txt', 'utf8')
     .split('\n')
     .map(line => line.trim())
@@ -15,7 +15,6 @@ const privateKeys = fs.readFileSync('sender.txt', 'utf8')
 
 const destinationAddress = fs.readFileSync('destination.txt', 'utf8').trim();
 
-// === Web3 Setup ===
 const web3 = new Web3(RPC_URL);
 
 // === ABI transfer ERC-20 ===
@@ -34,33 +33,104 @@ const minABI = [
 
 const tokenContract = new web3.eth.Contract(minABI, TOKEN_CONTRACT_ADDRESS);
 
-async function sendTokens() {
-    for (let privateKey of privateKeys) {
-        const account = web3.eth.accounts.privateKeyToAccount(privateKey);
-        web3.eth.accounts.wallet.add(account);
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
 
-        try {
-            const nonce = await web3.eth.getTransactionCount(account.address, 'latest');
-            const gasPrice = await web3.eth.getGasPrice();
-            const amount = web3.utils.toBN(web3.utils.toWei(AMOUNT_TO_SEND, 'ether'))
-                .div(web3.utils.toBN(10).pow(web3.utils.toBN(18 - DECIMALS)));
+async function sendMatic(account, privateKey) {
+    try {
+        const balance = await web3.eth.getBalance(account.address);
+        const gasPrice = await web3.eth.getGasPrice();
+        const gasLimit = 21000;
 
-            const tx = {
-                from: account.address,
-                to: TOKEN_CONTRACT_ADDRESS,
-                data: tokenContract.methods.transfer(destinationAddress, amount).encodeABI(),
-                gas: 100000,
-                gasPrice,
-                nonce
-            };
+        const gasCost = web3.utils.toBN(gasPrice).mul(web3.utils.toBN(gasLimit));
+        const maxSendable = web3.utils.toBN(balance).sub(gasCost);
 
-            const signedTx = await web3.eth.accounts.signTransaction(tx, privateKey);
-            const receipt = await web3.eth.sendSignedTransaction(signedTx.rawTransaction);
-            console.log(`✅ ${account.address} -> ${destinationAddress} | TX: ${receipt.transactionHash}`);
-        } catch (err) {
-            console.error(`❌ ${account.address} gagal: ${err.message}`);
+        if (maxSendable.lte(web3.utils.toBN(0))) {
+            console.error(`❌ ${account.address} saldo MATIC tidak cukup.`);
+            return;
         }
+
+        const nonce = await web3.eth.getTransactionCount(account.address, 'latest');
+        const tx = {
+            from: account.address,
+            to: destinationAddress,
+            value: maxSendable.toString(),
+            gas: gasLimit,
+            gasPrice,
+            nonce
+        };
+
+        const signedTx = await web3.eth.accounts.signTransaction(tx, privateKey);
+        const receipt = await web3.eth.sendSignedTransaction(signedTx.rawTransaction);
+        console.log(`✅ [MATIC] ${account.address} -> ${destinationAddress} | TX: ${receipt.transactionHash}`);
+        fs.appendFileSync('tx_hashes.txt', `${account.address} -> ${destinationAddress} | TX: ${receipt.transactionHash}\n`);
+    } catch (err) {
+        console.error(`❌ [MATIC] ${account.address} gagal: ${err.message}`);
     }
 }
 
-sendTokens();
+async function sendVerse(account, privateKey) {
+    try {
+        const balance = await tokenContract.methods.balanceOf(account.address).call();
+        const amount = web3.utils.toBN(balance);
+
+        if (amount.lte(web3.utils.toBN(0))) {
+            console.error(`❌ ${account.address} saldo VERSE kosong.`);
+            return;
+        }
+
+        const gasPrice = await web3.eth.getGasPrice();
+        const nonce = await web3.eth.getTransactionCount(account.address, 'latest');
+
+        const tx = {
+            from: account.address,
+            to: TOKEN_CONTRACT_ADDRESS,
+            data: tokenContract.methods.transfer(destinationAddress, amount).encodeABI(),
+            gas: 100000,
+            gasPrice,
+            nonce
+        };
+
+        const signedTx = await web3.eth.accounts.signTransaction(tx, privateKey);
+        const receipt = await web3.eth.sendSignedTransaction(signedTx.rawTransaction);
+        console.log(`✅ [VERSE] ${account.address} -> ${destinationAddress} | TX: ${receipt.transactionHash}`);
+        fs.appendFileSync('tx_hashes.txt', `${account.address} -> ${destinationAddress} | TX: ${receipt.transactionHash}\n`);
+    } catch (err) {
+        console.error(`❌ [VERSE] ${account.address} gagal: ${err.message}`);
+    }
+}
+
+async function start() {
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+    });
+
+    rl.question('Mau kirim (1) MATIC atau (2) VERSE? Pilih 1 atau 2: ', async (answer) => {
+        rl.close();
+
+        if (answer !== '1' && answer !== '2') {
+            console.error('Pilihan tidak valid.');
+            process.exit(1);
+        }
+
+        // Kosongkan file tx_hashes.txt
+        fs.writeFileSync('tx_hashes.txt', '');
+
+        for (const privateKey of privateKeys) {
+            const account = web3.eth.accounts.privateKeyToAccount(privateKey);
+            web3.eth.accounts.wallet.add(account);
+
+            if (answer === '1') {
+                await sendMatic(account, privateKey);
+            } else {
+                await sendVerse(account, privateKey);
+            }
+
+            await sleep(DELAY_MS);
+        }
+    });
+}
+
+start();

@@ -1,3 +1,6 @@
 node_modules
 destination.txt
-privateKeys.txt
+sender.txt
+check.js
+elig.txt
+tx_hashes.txt
