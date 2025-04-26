@@ -4,9 +4,9 @@ const readline = require('readline');
 
 // === Setting ===
 const RPC_URL = 'https://polygon-rpc.com'; // RPC Polygon Mainnet
-const TOKEN_CONTRACT_ADDRESS = '0xc708d6f2153933daa50b2d0758955be0a93a8fec'; // Alamat contract token VERSE
-const DECIMALS = 18; // Biasanya 18 untuk ERC-20 standar
-const DELAY_MS = 2000; // Delay antar pengiriman 2 detik
+const TOKEN_CONTRACT_ADDRESS = '0xc708d6f2153933daa50b2d0758955be0a93a8fec'; // VERSE Contact address 
+const DECIMALS = 18; // Polygon Decimal
+const DELAY_MS = 2000; // Delay between deliveries 2 seconds
 
 const privateKeys = fs.readFileSync('sender.txt', 'utf8')
     .split('\n')
@@ -47,7 +47,7 @@ async function sendMatic(account, privateKey) {
         const maxSendable = web3.utils.toBN(balance).sub(gasCost);
 
         if (maxSendable.lte(web3.utils.toBN(0))) {
-            console.error(`❌ ${account.address} saldo MATIC tidak cukup.`);
+            console.error(`❌ ${account.address} MATIC balance is insufficient!`);
             return;
         }
 
@@ -66,7 +66,7 @@ async function sendMatic(account, privateKey) {
         console.log(`✅ [MATIC] ${account.address} -> ${destinationAddress} | TX: ${receipt.transactionHash}`);
         fs.appendFileSync('tx_hashes.txt', `${account.address} -> ${destinationAddress} | TX: ${receipt.transactionHash}\n`);
     } catch (err) {
-        console.error(`❌ [MATIC] ${account.address} gagal: ${err.message}`);
+        console.error(`❌ [MATIC] ${account.address} failed: ${err.message}`);
     }
 }
 
@@ -76,7 +76,7 @@ async function sendVerse(account, privateKey) {
         const amount = web3.utils.toBN(balance);
 
         if (amount.lte(web3.utils.toBN(0))) {
-            console.error(`❌ ${account.address} saldo VERSE kosong.`);
+            console.error(`❌ ${account.address} VERSE balance is empty!`);
             return;
         }
 
@@ -97,7 +97,7 @@ async function sendVerse(account, privateKey) {
         console.log(`✅ [VERSE] ${account.address} -> ${destinationAddress} | TX: ${receipt.transactionHash}`);
         fs.appendFileSync('tx_hashes.txt', `${account.address} -> ${destinationAddress} | TX: ${receipt.transactionHash}\n`);
     } catch (err) {
-        console.error(`❌ [VERSE] ${account.address} gagal: ${err.message}`);
+        console.error(`❌ [VERSE] ${account.address} failed: ${err.message}`);
     }
 }
 
@@ -107,15 +107,15 @@ async function start() {
         output: process.stdout
     });
 
-    rl.question('Mau kirim (1) MATIC atau (2) VERSE? Pilih 1 atau 2: ', async (answer) => {
+    rl.question('Want to send (1) MATIC or (2) VERSE? Choose 1 or 2:', async (answer) => {
         rl.close();
 
         if (answer !== '1' && answer !== '2') {
-            console.error('Pilihan tidak valid.');
+            console.error('Invalid choice!');
             process.exit(1);
         }
 
-        // Kosongkan file tx_hashes.txt
+        // Empty the tx_hashes.txt file
         fs.writeFileSync('tx_hashes.txt', '');
 
         for (const privateKey of privateKeys) {
