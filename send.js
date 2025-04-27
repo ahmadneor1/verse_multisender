@@ -19,6 +19,19 @@ const web3 = new Web3(RPC_URL);
 
 // === ABI transfer ERC-20 ===
 const minABI = [
+    // balanceOf
+    {
+        "constant": true,
+        "inputs": [
+            { "name": "_owner", "type": "address" }
+        ],
+        "name": "balanceOf",
+        "outputs": [
+            { "name": "balance", "type": "uint256" }
+        ],
+        "type": "function"
+    },
+    // transfer
     {
         "constant": false,
         "inputs": [
