@@ -61,7 +61,7 @@ async function checkBalances() {
 
       // Normalisasi ke jumlah yang lebih terbaca (menggunakan BigInt untuk pembagian)
       const verseBalanceNormal = Number(verseBalanceBigInt) / Number(10n ** decimals);
-      const maticBalanceNormal = Number(maticBalanceBigInt) / Number(10n ** BigInt(18));
+      const maticBalanceNormal = web3.utils.fromWei(maticBalanceBigInt.toString(), 'ether');
 
       console.log(`💰 Balance VERSE: ${verseBalanceNormal} VERSE`);
       console.log(`💎 Balance MATIC: ${maticBalanceNormal} MATIC`);
@@ -85,7 +85,7 @@ async function checkBalances() {
 
   // Menghitung total balance (menggunakan BigInt untuk pembagian)
   const totalVerseNormal = totalVerseBalance / (10n ** decimals);
-  const totalMaticNormal = totalMaticBalance / (10n ** BigInt(18));
+  const totalMaticNormal = web3.utils.fromWei(totalMaticBalance.toString(), 'ether');
 
   console.log(`\n🎯 Total VERSE dari semua wallet: ${totalVerseNormal.toString()} VERSE`);
   console.log(`🎯 Total MATIC dari semua wallet: ${totalMaticNormal.toString()} MATIC`);
