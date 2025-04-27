@@ -12,7 +12,7 @@ This script is useful for those of you who want to collect tokens from various w
    <pre lang="markdown">npm install</pre>
    or
    <pre lang="markdown">npm i</pre>
-4. Fill file ```sender.txt``` and ```destination.txt```!
+4. Create and fill file ```sender.txt```with your private key and ```destination.txt``` with wallet address receiver!
 5. Finally, you can run it:
    <pre lang="markdown">node send.js</pre>
 
