@@ -1,14 +1,10 @@
 const Web3 = require('web3');
 const fs = require('fs');
 
-// Baca private keys dari file
-const privateKeys = fs.readFileSync('sender.txt', 'utf-8').split('\n').filter(Boolean);
-
-// RPC URL Polygon
+// Setup Web3 dan kontrak
 const RPC_URL = 'https://polygon-rpc.com';
 const web3 = new Web3(RPC_URL);
 
-// Alamat smart contract VERSE
 const tokenAddress = '0xc708d6f2153933daa50b2d0758955be0a93a8fec';
 const tokenABI = [
   {
@@ -25,78 +21,86 @@ const tokenABI = [
     type: "function",
     inputs: [],
     payable: false,
-    stateMutability: "view",
-    type: "function"
+    stateMutability: "view"
   }
 ];
-
 const contract = new web3.eth.Contract(tokenABI, tokenAddress);
 
+// Logging
+const logFile = 'log.txt';
+function log(msg) {
+  fs.appendFileSync(logFile, msg + '\n');
+  console.log(msg);
+}
+
+// Fungsi utama
 async function checkBalances() {
+  // Reset log dan file output
+  if (fs.existsSync(logFile)) fs.unlinkSync(logFile);
+
+  const privateKeys = fs.readFileSync('privkey.txt', 'utf-8').split('\n').map(x => x.trim()).filter(Boolean);
+  if (privateKeys.length === 0) return log('❌ Tidak ada private key yang valid.');
+
   const decimals = BigInt(await contract.methods.decimals().call());
 
-  let totalVerseBalance = BigInt(0);
-  let totalMaticBalance = BigInt(0);
-
-  let accountNumber = 1;  // Penanda untuk nomor urut
-
-  const addressesWithBalance = []; // Array untuk menyimpan alamat dengan saldo VERSE > 0
+  let totalVerse = 0n;
+  let totalMatic = 0n;
+  const eligAddresses = [];
+  const eligPrivateKeys = [];
+  let walletNo = 1;
 
   for (const pk of privateKeys) {
+    if (!/^0x[a-fA-F0-9]{64}$/.test(pk)) {
+      log(`⚠️ Private key tidak valid: ${pk}`);
+      continue;
+    }
+
     try {
-      const account = web3.eth.accounts.privateKeyToAccount(pk.trim());
+      const account = web3.eth.accounts.privateKeyToAccount(pk);
       const address = account.address;
 
-      // Balance token VERSE
-      const verseBalanceRaw = await contract.methods.balanceOf(address).call();
-      const verseBalanceBigInt = BigInt(verseBalanceRaw);
+      const [verseRaw, maticRaw] = await Promise.all([
+        contract.methods.balanceOf(address).call(),
+        web3.eth.getBalance(address)
+      ]);
 
-      // Balance native MATIC
-      const maticBalanceRaw = await web3.eth.getBalance(address);
-      const maticBalanceBigInt = BigInt(maticBalanceRaw);
+      const verseBig = BigInt(verseRaw);
+      const maticBig = BigInt(maticRaw);
 
-      console.log(`🔑 Wallet ${accountNumber} dari Alamat: ${address}`);
-      console.log(`💰 VERSE (raw): ${verseBalanceBigInt.toString()} (smallest unit)`);
-      console.log(`💎 MATIC (raw): ${maticBalanceBigInt.toString()} (wei)`);
+      const verseFloat = Number(verseBig) / Number(10n ** decimals);
+      const maticFloat = web3.utils.fromWei(maticBig.toString(), 'ether');
 
-      // Normalisasi ke jumlah yang lebih terbaca (menggunakan BigInt untuk pembagian)
-      const verseBalanceNormal = Number(verseBalanceBigInt) / Number(10n ** decimals);
-      const maticBalanceNormal = web3.utils.fromWei(maticBalanceBigInt.toString(), 'ether');
+      log(`🔑 Wallet ${walletNo} - ${address}`);
+      log(`   💰 VERSE: ${verseFloat}`);
+      log(`   💎 MATIC: ${maticFloat}`);
+      log('--------------------------');
 
-      console.log(`💰 Balance VERSE: ${verseBalanceNormal} VERSE`);
-      console.log(`💎 Balance MATIC: ${maticBalanceNormal} MATIC`);
-      console.log('------------------------');
+      totalVerse += verseBig;
+      totalMatic += maticBig;
 
-      // Menambahkan total balance
-      totalVerseBalance += verseBalanceBigInt;
-      totalMaticBalance += maticBalanceBigInt;
-
-      // Menyimpan alamat dengan saldo VERSE lebih dari 0
-      if (verseBalanceBigInt > 0) {
-        addressesWithBalance.push(address);
+      if (verseBig > 0n) {
+        eligAddresses.push(address);
+        eligPrivateKeys.push(pk);
       }
 
-      // Increment penanda nomor akun
-      accountNumber++;
-    } catch (error) {
-      console.error(`❌ Error untuk private key ${pk.slice(0, 10)}...:`, error.message);
+      walletNo++;
+    } catch (e) {
+      log(`❌ Error wallet ${walletNo} (${pk.slice(0, 10)}...): ${e.message}`);
     }
   }
 
-  // Menghitung total balance (menggunakan BigInt untuk pembagian)
-  const totalVerseNormal = totalVerseBalance / (10n ** decimals);
-  const totalMaticNormal = web3.utils.fromWei(totalMaticBalance.toString(), 'ether');
+  const totalVerseDisplay = Number(totalVerse) / Number(10n ** decimals);
+  const totalMaticDisplay = web3.utils.fromWei(totalMatic.toString(), 'ether');
 
-  console.log(`\n🎯 Total VERSE dari semua wallet: ${totalVerseNormal.toString()} VERSE`);
-  console.log(`🎯 Total MATIC dari semua wallet: ${totalMaticNormal.toString()} MATIC`);
+  log(`\n🎯 TOTAL VERSE: ${totalVerseDisplay}`);
+  log(`🎯 TOTAL MATIC: ${totalMaticDisplay}`);
 
-  // Menyimpan alamat yang memiliki saldo VERSE > 0 ke file baru
-  if (addressesWithBalance.length > 0) {
-    fs.writeFileSync('elig.txt', addressesWithBalance.join('\n'), 'utf-8');
-    console.log('📄 Alamat dengan saldo VERSE lebih dari 0 telah disimpan di file elig.txt');
-  } else {
-    console.log('📄 Tidak ada alamat dengan saldo VERSE lebih dari 0.');
-  }
+  // Tulis ulang file output dengan data terbaru (bersih dari yang saldo 0)
+  fs.writeFileSync('elig.txt', eligAddresses.join('\n'), 'utf-8');
+  fs.writeFileSync('sender.txt', eligPrivateKeys.join('\n'), 'utf-8');
+
+  log(`📄 ${eligAddresses.length} alamat ditulis ke elig.txt`);
+  log(`🔐 ${eligPrivateKeys.length} private key ditulis ke sender.txt`);
 }
 
 checkBalances();

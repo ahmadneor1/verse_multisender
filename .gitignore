@@ -3,3 +3,5 @@ destination.txt
 sender.txt
 elig.txt
 tx_hashes.txt
+privkey.txt
+log.txt
