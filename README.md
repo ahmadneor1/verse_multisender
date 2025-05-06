@@ -12,9 +12,9 @@ This script is useful for those of you who want to collect tokens from various w
    <pre lang="markdown">npm install</pre>
    or
    <pre lang="markdown">npm i</pre>
-4. Create and fill file `privkey.txt`with your private key to check verse balance.
+4. Create and fill file `mnemonic.txt`with your mnemonic code to check verse balance.
 
-   If you want to do multi-sending directly, then create a file `sender.txt` with your sender private key and `destination.txt` with wallet address receiver!
+   If you want to do multi-sending directly, then create a file `sender.txt` with your sender mnemonic code and `destination.txt` with wallet address receiver!
 
 5. Finally, you can run it:
    <pre lang="markdown">node check.js</pre> to check your balance

@@ -1,4 +1,4 @@
-const Web3 = require('web3');
+const { ethers } = require('ethers');
 const fs = require('fs');
 const readline = require('readline');
 
@@ -8,13 +8,14 @@ const TOKEN_CONTRACT_ADDRESS = '0xc708d6f2153933daa50b2d0758955be0a93a8fec'; // 
 const DECIMALS = 18; // Token Decimals
 const DELAY_MS = 2000; // Delay antar pengiriman
 
-const privateKeys = fs.readFileSync('sender.txt', 'utf8')
+// Baca mnemonic dari file
+const mnemonics = fs.readFileSync('sender.txt', 'utf8')
     .split('\n')
     .map(line => line.trim())
     .filter(line => line.length > 0);
 
 const destinationAddress = fs.readFileSync('destination.txt', 'utf8').trim();
-const web3 = new Web3(RPC_URL);
+const provider = new ethers.JsonRpcProvider(RPC_URL);
 
 // === ABI transfer ERC-20 ===
 const minABI = [
@@ -37,92 +38,81 @@ const minABI = [
     }
 ];
 
-const tokenContract = new web3.eth.Contract(minABI, TOKEN_CONTRACT_ADDRESS);
+const tokenContract = new ethers.Contract(TOKEN_CONTRACT_ADDRESS, minABI, provider);
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function sendMatic(account, privateKey) {
+async function sendMatic(wallet) {
     try {
-        const balance = await web3.eth.getBalance(account.address);
-        const gasPrice = await web3.eth.getGasPrice();
+        const balance = await provider.getBalance(wallet.address);
+        const feeData = await provider.getFeeData();
+        const gasPrice = feeData.gasPrice || feeData.maxFeePerGas;
         const gasLimit = 21000;
-        const gasCost = web3.utils.toBN(gasPrice).mul(web3.utils.toBN(gasLimit));
-        const maxSendable = web3.utils.toBN(balance).sub(gasCost);
+        const gasCost = gasPrice * BigInt(gasLimit);
+        const maxSendable = balance - gasCost;
 
-        if (maxSendable.lte(web3.utils.toBN(0))) {
-            console.error(`❌ ${account.address} | MATIC balance insufficient for gas.`);
+        if (maxSendable <= 0n) {
+            console.error(`❌ ${wallet.address} | MATIC balance insufficient for gas.`);
             return;
         }
 
-        const nonce = await web3.eth.getTransactionCount(account.address, 'pending');
         const tx = {
-            from: account.address,
             to: destinationAddress,
-            value: maxSendable.toString(),
-            gas: gasLimit,
-            gasPrice,
-            nonce
+            value: maxSendable,
+            gasLimit,
+            gasPrice
         };
 
-        const signedTx = await web3.eth.accounts.signTransaction(tx, privateKey);
-        const receipt = await web3.eth.sendSignedTransaction(signedTx.rawTransaction);
-        console.log(`✅ [MATIC] ${account.address} -> ${destinationAddress} | TX: ${receipt.transactionHash}`);
-        fs.appendFileSync('tx_hashes.txt', `${account.address} -> ${destinationAddress} | TX: ${receipt.transactionHash}\n`);
+        const txResponse = await wallet.sendTransaction(tx);
+        console.log(`✅ [MATIC] ${wallet.address} -> ${destinationAddress} | TX: ${txResponse.hash}`);
     } catch (err) {
-        console.error(`❌ [MATIC] ${account.address} failed: ${err.message}`);
+        console.error(`❌ [MATIC] ${wallet.address} failed: ${err.message}`);
     }
 }
 
-async function sendVerse(account, privateKey, sendFullBalance, fixedAmountInVerse = null) {
+async function sendVerse(wallet, sendFullBalance, fixedAmountInVerse = null) {
     try {
-        const tokenBalance = await tokenContract.methods.balanceOf(account.address).call();
-        const amountBalance = web3.utils.toBN(tokenBalance);
+        const tokenBalance = await tokenContract.balanceOf(wallet.address);
+        const amountBalance = tokenBalance;
 
-        if (amountBalance.lte(web3.utils.toBN(0))) {
-            console.error(`❌ ${account.address} | VERSE balance is zero.`);
+        if (amountBalance <= 0n) {
+            console.error(`❌ ${wallet.address} | VERSE balance is zero.`);
             return;
         }
 
-        const nativeBalance = await web3.eth.getBalance(account.address);
+        // Dapatkan data gas fee yang benar
+        const feeData = await provider.getFeeData();
+        const gasPrice = feeData.gasPrice || feeData.maxFeePerGas;
+
+        if (!gasPrice) {
+            throw new Error("Failed to get gas price");
+        }
+
         const estimatedGas = 70000;
-        const gasPrice = await web3.eth.getGasPrice();
-        const requiredGasFee = web3.utils.toBN(gasPrice).mul(web3.utils.toBN(estimatedGas));
+        const requiredGasFee = gasPrice * BigInt(estimatedGas);
 
-        if (web3.utils.toBN(nativeBalance).lt(requiredGasFee)) {
-            console.error(`❌ ${account.address} | MATIC balance insufficient for VERSE transfer gas.`);
+        const nativeBalance = await provider.getBalance(wallet.address);
+        if (nativeBalance < requiredGasFee) {
+            console.error(`❌ ${wallet.address} | MATIC balance insufficient for VERSE transfer gas.`);
             return;
         }
 
-        let transferAmount;
+        let transferAmount = sendFullBalance
+            ? amountBalance
+            : ethers.parseUnits(fixedAmountInVerse.toString(), DECIMALS);
 
-        if (sendFullBalance) {
-            transferAmount = amountBalance;
-        } else {
-            transferAmount = web3.utils.toBN(web3.utils.toWei(fixedAmountInVerse.toString(), 'ether'));
-            if (transferAmount.gt(amountBalance)) {
-                console.error(`❌ ${account.address} | Not enough VERSE to send fixed amount.`);
-                return;
-            }
+        if (transferAmount > amountBalance) {
+            console.error(`❌ ${wallet.address} | Not enough VERSE to send.`);
+            return;
         }
 
-        const nonce = await web3.eth.getTransactionCount(account.address, 'pending');
-        const tx = {
-            from: account.address,
-            to: TOKEN_CONTRACT_ADDRESS,
-            data: tokenContract.methods.transfer(destinationAddress, transferAmount).encodeABI(),
-            gas: estimatedGas,
-            gasPrice,
-            nonce
-        };
-
-        const signedTx = await web3.eth.accounts.signTransaction(tx, privateKey);
-        const receipt = await web3.eth.sendSignedTransaction(signedTx.rawTransaction);
-        console.log(`✅ [VERSE] ${account.address} -> ${destinationAddress} | TX: ${receipt.transactionHash}`);
-        fs.appendFileSync('tx_hashes.txt', `${account.address} -> ${destinationAddress} | TX: ${receipt.transactionHash}\n`);
+        const tokenContractWithSigner = tokenContract.connect(wallet);
+        const txResponse = await tokenContractWithSigner.transfer(destinationAddress, transferAmount);
+        console.log(`✅ [VERSE] ${wallet.address} -> ${destinationAddress} | TX: ${txResponse.hash}`);
     } catch (err) {
-        console.error(`❌ [VERSE] ${account.address} failed: ${err.message}`);
+        console.error(`❌ [VERSE] ${wallet.address} failed: ${err.message}`);
     }
 }
 
@@ -170,21 +160,24 @@ async function start() {
         rl.close();
         fs.writeFileSync('tx_hashes.txt', '');
 
-        for (const privateKey of privateKeys) {
-            const account = web3.eth.accounts.privateKeyToAccount(privateKey);
-            web3.eth.accounts.wallet.add(account);
-
+        for (const mnemonic of mnemonics) {
             try {
-                if (answer === '1') {
-                    await sendMatic(account, privateKey);
-                } else {
-                    await sendVerse(account, privateKey, sendFullBalance, fixedAmount);
-                }
-            } catch (e) {
-                console.error(`❌ Critical error at ${account.address}: ${e.message}`);
-            }
+                const wallet = ethers.Wallet.fromPhrase(mnemonic, provider);
 
-            await sleep(DELAY_MS);
+                try {
+                    if (answer === '1') {
+                        await sendMatic(wallet);
+                    } else {
+                        await sendVerse(wallet, sendFullBalance, fixedAmount);
+                    }
+                } catch (e) {
+                    console.error(`❌ Critical error at ${wallet.address}: ${e.message}`);
+                }
+
+                await sleep(DELAY_MS);
+            } catch (e) {
+                console.error(`❌ Invalid mnemonic: ${e.message}`);
+            }
         }
     });
 }

@@ -1,7 +1,9 @@
-const Web3 = require('web3');
 const fs = require('fs');
+const Web3 = require('web3');
+const bip39 = require('bip39');
+const hdkey = require('ethereumjs-wallet').hdkey;
 
-// Setup Web3 dan kontrak
+// === Konfigurasi ===
 const RPC_URL = 'https://polygon-rpc.com';
 const web3 = new Web3(RPC_URL);
 
@@ -33,31 +35,35 @@ function log(msg) {
   console.log(msg);
 }
 
-// Fungsi utama
 async function checkBalances() {
-  // Reset log dan file output
   if (fs.existsSync(logFile)) fs.unlinkSync(logFile);
 
-  const privateKeys = fs.readFileSync('privkey.txt', 'utf-8').split('\n').map(x => x.trim()).filter(Boolean);
-  if (privateKeys.length === 0) return log('❌ Tidak ada private key yang valid.');
+  const mnemonicList = fs.readFileSync('mnemonic.txt', 'utf-8')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.length > 0);
 
   const decimals = BigInt(await contract.methods.decimals().call());
 
   let totalVerse = 0n;
   let totalMatic = 0n;
   const eligAddresses = [];
-  const eligPrivateKeys = [];
-  let walletNo = 1;
+  const eligMnemonics = []; // Ubah dari privateKeys ke mnemonics
 
-  for (const pk of privateKeys) {
-    if (!/^0x[a-fA-F0-9]{64}$/.test(pk)) {
-      log(`⚠️ Private key tidak valid: ${pk}`);
+  for (const [index, mnemonic] of mnemonicList.entries()) {
+    if (!bip39.validateMnemonic(mnemonic)) {
+      console.error(`❌ Mnemonic ke-${index + 1} tidak valid.`);
       continue;
     }
 
+    console.log(`✅ Mnemonic ke-${index + 1} valid.`);
+
     try {
-      const account = web3.eth.accounts.privateKeyToAccount(pk);
-      const address = account.address;
+      const seed = await bip39.mnemonicToSeed(mnemonic);
+      const hdWallet = hdkey.fromMasterSeed(seed);
+      const path = `m/44'/60'/0'/0/0`;  // hanya 1 wallet per mnemonic
+      const wallet = hdWallet.derivePath(path).getWallet();
+      const address = '0x' + wallet.getAddress().toString('hex');
 
       const [verseRaw, maticRaw] = await Promise.all([
         contract.methods.balanceOf(address).call(),
@@ -70,7 +76,7 @@ async function checkBalances() {
       const verseFloat = Number(verseBig) / Number(10n ** decimals);
       const maticFloat = web3.utils.fromWei(maticBig.toString(), 'ether');
 
-      log(`🔑 Wallet ${walletNo} - ${address}`);
+      log(`🔑 Wallet Mnemonic #${index + 1} - ${address}`);
       log(`   💰 VERSE: ${verseFloat}`);
       log(`   💎 MATIC: ${maticFloat}`);
       log('--------------------------');
@@ -80,12 +86,11 @@ async function checkBalances() {
 
       if (verseBig > 0n) {
         eligAddresses.push(address);
-        eligPrivateKeys.push(pk);
+        eligMnemonics.push(mnemonic); // Simpan mnemonic bukan private key
       }
 
-      walletNo++;
-    } catch (e) {
-      log(`❌ Error wallet ${walletNo} (${pk.slice(0, 10)}...): ${e.message}`);
+    } catch (err) {
+      log(`❌ Error di mnemonic ke-${index + 1}: ${err.message}`);
     }
   }
 
@@ -95,12 +100,11 @@ async function checkBalances() {
   log(`\n🎯 TOTAL VERSE: ${totalVerseDisplay}`);
   log(`🎯 TOTAL MATIC: ${totalMaticDisplay}`);
 
-  // Tulis ulang file output dengan data terbaru (bersih dari yang saldo 0)
   fs.writeFileSync('elig.txt', eligAddresses.join('\n'), 'utf-8');
-  fs.writeFileSync('sender.txt', eligPrivateKeys.join('\n'), 'utf-8');
+  fs.writeFileSync('sender.txt', eligMnemonics.join('\n'), 'utf-8'); // Simpan mnemonics
 
   log(`📄 ${eligAddresses.length} alamat ditulis ke elig.txt`);
-  log(`🔐 ${eligPrivateKeys.length} private key ditulis ke sender.txt`);
+  log(`🔐 ${eligMnemonics.length} mnemonic ditulis ke sender.txt`); // Update log message
 }
 
 checkBalances();
